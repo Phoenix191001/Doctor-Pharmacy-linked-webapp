@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lab / Pharmacy Console</title>
+<link rel="stylesheet" href="/shared.css">
+</head>
+<body>
+<header><h1>💊 Lab / Pharmacy Console</h1><span class="live" id="live">○ Connecting...</span></header>
+<main>
+  <section class="card full" id="alerts" hidden></section>
+
+  <section class="card full">
+    <h2>Incoming prescriptions</h2>
+    <div id="queue"></div>
+  </section>
+
+  <section class="card full">
+    <h2>Inventory</h2>
+    <input id="q" placeholder="Filter inventory..." style="margin-bottom:10px">
+    <div style="overflow-x:auto"><table>
+      <thead><tr><th>Medicine</th><th>Formula</th><th>Status</th><th>Stock</th><th>Low-stock at</th><th></th></tr></thead>
+      <tbody id="inv"></tbody>
+    </table></div>
+  </section>
+
+  <section class="card full">
+    <h2>Add new medicine</h2>
+    <div class="row"><input id="nName" placeholder="Brand name *"><input id="nFormula" placeholder="Formula (active ingredient) *"></div>
+    <div class="row"><input id="nStock" type="number" placeholder="Stock"><input id="nPrice" type="number" placeholder="Price (Rs)"><input id="nThr" type="number" placeholder="Low-stock alert at"><button id="addMed">Add</button></div>
+    <div class="mute" id="msg"></div>
+  </section>
+</main>
+<script src="/shared.js"></script>
+<script>
+let meds = [], rxs = [];
+const $ = (id) => document.getElementById(id);
+
+async function refresh() {
+  [meds, rxs] = await Promise.all([API.get('/api/medicines'), API.get('/api/prescriptions')]);
+  render();
+}
+
+function render() {
+  const low = meds.filter((m) => m.stock <= m.threshold);
+  $('alerts').hidden = !low.length;
+  $('alerts').innerHTML = '<h2>⚠ Restock needed</h2>' + low.map((m) =>
+    `<span class="badge ${m.stock <= 0 ? 'out' : 'low'}" style="margin:2px">${esc(m.name)}: ${m.stock}</span>`).join(' ');
+
+  const pending = rxs.filter((r) => r.status === 'pending');
+  $('queue').innerHTML = pending.length ? pending.map((r) => `<div class="med"><div>
+      <b>${r.id}</b> · ${esc(r.patient.name)} <span class="mute">(token ${esc(r.patient.token) || '-'}, ${esc(r.doctor)})</span>
+      ${r.items.map((i) => { const m = meds.find((x) => x.id === i.medicineId); const ok = m && m.stock >= i.qty;
+        return `<div>${esc(i.name)} ×${i.qty} <span class="mute">${esc(i.dosage)}</span> <span class="badge ${ok ? 'in' : 'out'}">${ok ? 'available' : 'short'}</span></div>`; }).join('')}
+    </div><button onclick="dispense('${r.id}')">Dispense</button></div>`).join('')
+    : '<div class="mute">No pending prescriptions.</div>';
+
+  const q = $('q').value.trim().toLowerCase();
+  $('inv').innerHTML = meds.filter((m) => !q || (m.name + m.formula).toLowerCase().includes(q)).map((m) =>
+    `<tr><td><b>${esc(m.name)}</b></td><td>${esc(m.formula)}</td><td>${stockBadge(m)}</td>
+     <td><input type="number" min="0" value="${m.stock}" style="width:90px" onchange="setStock('${m.id}',this.value)"></td>
+     <td><input type="number" min="0" value="${m.threshold}" style="width:90px" onchange="setThr('${m.id}',this.value)"></td>
+     <td><button class="ghost" onclick="restock('${m.id}')">+50</button></td></tr>`).join('');
+}
+
+const setStock = (id, v) => API.post('/api/medicines', { id, stock: v });
+const setThr = (id, v) => API.post('/api/medicines', { id, threshold: v });
+const restock = (id) => API.post('/api/medicines', { id, stock: meds.find((m) => m.id === id).stock + 50 });
+async function dispense(id) {
+  try { await API.post(`/api/prescriptions/${id}/dispense`); } catch (e) { alert(e.message); }
+}
+
+$('q').oninput = render;
+$('addMed').onclick = async () => {
+  try {
+    await API.post('/api/medicines', { name: $('nName').value, formula: $('nFormula').value, stock: $('nStock').value, price: $('nPrice').value, threshold: $('nThr').value || 10 });
+    ['nName', 'nFormula', 'nStock', 'nPrice', 'nThr'].forEach((i) => ($(i).value = ''));
+    $('msg').textContent = 'Added.';
+  } catch (e) { $('msg').textContent = e.message; }
+};
+
+onLive(refresh);
+refresh();
+</script>
+</body>
+</html>
