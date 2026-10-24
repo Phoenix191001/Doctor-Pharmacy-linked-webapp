@@ -1,4 +1,4 @@
 ﻿# Doctor app
 
-This folder is for the Doctor console (maintained by the Doctor teammate).
-It should talk to the shared backend in ../lab (server.js) using the /api/* endpoints.
+Files: public/doctor/index.html (Doctor console), public/shared.css and public/shared.js (shared with the Lab app).
+It needs the backend from the 'lab' branch (server.js) and is served at /doctor/.
